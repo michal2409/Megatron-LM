@@ -35,6 +35,7 @@ try:
         TELayerNormColumnParallelLinear,
         TENorm,
         TERowParallelLinear,
+        TESwigluLinear
     )
 
     HAVE_TE = True
@@ -149,6 +150,9 @@ def get_gpt_layer_with_transformer_engine_spec(
                 pre_mlp_layernorm=TENorm if num_experts else IdentityOp,
                 mlp=mlp,
                 mlp_bda=get_bias_dropout_add,
+                sharded_state_dict_keys_map={
+                    'mlp.swiglu_fc2.1.basic_ops.0.weight': 'mlp.linear_fc2.weight',
+                },
             ),
         )
 
@@ -284,6 +288,7 @@ def get_mlp_module_spec(
             submodules=MLPSubmodules(
                 linear_fc1=TELayerNormColumnParallelLinear if use_te else ColumnParallelLinear,
                 linear_fc2=TERowParallelLinear if use_te else RowParallelLinear,
+                swiglu_fc2=TESwigluLinear if use_te else RowParallelLinear,
             ),
         )
     else:
