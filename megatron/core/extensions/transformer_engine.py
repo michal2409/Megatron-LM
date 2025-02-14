@@ -9,6 +9,7 @@ from typing import Any, Callable, Optional
 
 import torch
 import transformer_engine as te
+import transformer_engine.pytorch.ops as te_ops
 from packaging.version import Version as PkgVersion
 from torch import Tensor
 from torch.nn.parameter import Parameter
@@ -92,7 +93,7 @@ class TENorm:
         return instance
 
 
-class TESequentialLinear(te.pytorch.Sequential):
+class TESequentialLinear(te_ops.Sequential):
     def __init__(
         self,
         input_size: int,
@@ -143,7 +144,7 @@ class TESequentialLinear(te.pytorch.Sequential):
         tp_group = get_tensor_model_parallel_group(check_initialized=False)
         if is_expert and (self.config.sequence_parallel or self.expert_parallel):
             if self.config.moe_extended_tp:
-                tp_size = self.config.tensor_model_parallel_size
+                tp_size = get_expert_tensor_parallel_world_size()
             if parallel_mode == "column":
                 output_size = divide(output_size, tp_size)
             elif parallel_mode == "row":
@@ -153,7 +154,7 @@ class TESequentialLinear(te.pytorch.Sequential):
             tp_group = None
 
         super().__init__(
-            te.pytorch.ops.Linear(
+            te_ops.Linear(
                 in_features=input_size,
                 out_features=output_size,
                 sequence_parallel=self.config.sequence_parallel,
@@ -165,7 +166,6 @@ class TESequentialLinear(te.pytorch.Sequential):
                 dtype=torch.bfloat16,
             )
         )
-
     def sharded_state_dict(self, prefix='', sharded_offsets=(), metadata=None):
         """Sharding along axis 0, bias sharded"""
         state_dict = self.state_dict(prefix='', keep_vars=True)
@@ -173,16 +173,14 @@ class TESequentialLinear(te.pytorch.Sequential):
             state_dict, prefix, {'weight': 0, 'bias': 0}, sharded_offsets
         )
 
-
-class TESwigluLinear(te.pytorch.ops.Sequential):
+class TESwigluLinear(te_ops.Sequential):
     """
     Wrapper for Transformer-Engine's SwiGLU + Linear layer.
-
     """
     def __init__(
         self,
         input_size: int,
-        output_size: int,
+        output_size: int,      # output_size
         *,
         config: ModelParallelConfig,
         init_method: Callable,
@@ -206,7 +204,7 @@ class TESwigluLinear(te.pytorch.ops.Sequential):
         extra_kwargs = _get_extra_te_kwargs(config)
 
         rng_tracker_name = None
-        if get_te_version() >= PkgVersion("1.7.0.dev"):
+        if is_te_min_version("1.7.0.dev"):
             extra_kwargs["rng_tracker_name"] = rng_tracker_name
 
         self.expert_parallel = self.config.expert_model_parallel_size > 1
@@ -214,7 +212,7 @@ class TESwigluLinear(te.pytorch.ops.Sequential):
             rng_tracker_name = get_expert_parallel_rng_tracker_name()
         else:
             rng_tracker_name = None
-        if get_te_version() >= PkgVersion("1.7.0.dev"):
+        if is_te_min_version("1.7.0.dev"):
             extra_kwargs["rng_tracker_name"] = rng_tracker_name
 
         # Disable communications in TE when using SP or EP by making TE agnostic of model parallel.
@@ -222,7 +220,7 @@ class TESwigluLinear(te.pytorch.ops.Sequential):
         tp_group = get_tensor_model_parallel_group(check_initialized=False)
         if is_expert and (self.config.sequence_parallel or self.expert_parallel):
             if self.config.moe_extended_tp:
-                tp_size = get_tensor_model_parallel_world_size()
+                tp_size = get_expert_tensor_parallel_world_size()
             if parallel_mode == "column":
                 output_size = divide(output_size, tp_size)
             elif parallel_mode == "row":
@@ -232,9 +230,9 @@ class TESwigluLinear(te.pytorch.ops.Sequential):
             tp_group = None
 
         super().__init__(
-            te.pytorch.ops.Quantize(forward=False, backward=True),
-            te.pytorch.ops.SwiGLU(),
-            te.pytorch.ops.Linear(
+            te_ops.Quantize(forward=False, backward=True),
+            te_ops.SwiGLU(),
+            te_ops.Linear(
                 in_features=input_size,
                 out_features=output_size,
                 sequence_parallel=self.config.sequence_parallel,
