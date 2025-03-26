@@ -21,7 +21,7 @@ from megatron.core.transformer.spec_utils import ModuleSpec, build_module
 from megatron.core.transformer.transformer_config import TransformerConfig
 
 import transformer_engine.pytorch as te
-
+import transformer_engine.common.recipe as te_recipe
 
 @dataclass
 class MLPSubmodules:
@@ -60,7 +60,6 @@ class MLP(MegatronModule):
         self.config: TransformerConfig = config
 
         self.input_size = input_size if input_size != None else self.config.hidden_size
-        self.fuse_swiglu_fc2 = True
 
         # If this is a gated linear unit we double the output width
         # see https://arxiv.org/pdf/2002.05202.pdf
@@ -68,20 +67,8 @@ class MLP(MegatronModule):
         if self.config.gated_linear_unit:
             ffn_hidden_size *= 2
 
-        self.linear_fc1 = build_module(
-            submodules.linear_fc1,
-            self.input_size,
-            ffn_hidden_size,
-            config=self.config,
-            init_method=self.config.init_method,
-            gather_output=False,
-            bias=self.config.add_bias_linear,
-            skip_bias_add=True,
-            is_expert=is_expert,
-            tp_comm_buffer_name='fc1',
-        )
-
         self.activation_is_swiglu = self.config.activation_func == F.silu and self.config.gated_linear_unit
+        self.fuse_swiglu_fc2 = True
         self.use_fused_swiglu = self.activation_is_swiglu and self.config.tensor_model_parallel_size == 1 and self.fuse_swiglu_fc2
 
         if self.use_fused_swiglu:
@@ -138,8 +125,7 @@ class MLP(MegatronModule):
     def forward(self, hidden_states):
         """Perform the forward pass through the MLP block."""
         if self.use_fused_swiglu:
-            with te.fp8_autocast():
-                output = self.swiglu_fc2(self.seq_linear_fc1(hidden_states))
+            output = self.swiglu_fc2(self.seq_linear_fc1(hidden_states))
             return output, None
 
         # [s, b, 4 * h/p]
