@@ -67,9 +67,10 @@ class MLP(MegatronModule):
         if self.config.gated_linear_unit:
             ffn_hidden_size *= 2
 
-        self.activation_is_swiglu = self.config.activation_func == F.silu and self.config.gated_linear_unit
-        self.fuse_swiglu_fc2 = True
-        self.use_fused_swiglu = self.activation_is_swiglu and self.config.tensor_model_parallel_size == 1 and self.fuse_swiglu_fc2
+        self.use_fused_swiglu = (self.config.activation_func == F.silu and
+                                self.config.gated_linear_unit and
+                                self.config.tensor_model_parallel_size == 1 and
+                                self.config.use_fused_swiglu)
 
         if self.use_fused_swiglu:
             self.seq_linear_fc1 = build_module(

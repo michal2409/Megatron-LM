@@ -40,7 +40,7 @@ class ModelParallelConfig:
     """Splits network input along sequence dimension across GPU ranks."""
 
     hierarchical_context_parallel_sizes: Optional[list[int]] = None
-    """Degrees of the hierarchical context parallelism. Users should provide a list to specify 
+    """Degrees of the hierarchical context parallelism. Users should provide a list to specify
        the sizes for different levels. Taking the a2a+p2p cp comm type as example, it contains
        groups of two levels, so the first value of the list indicates the group size of the a2a
        communication type, and the second value indicates the group size of the p2p communication
@@ -227,6 +227,11 @@ class ModelParallelConfig:
        Set the bootstrapping backend out of 'nccl', 'mpi', and 'gloo'
     """
 
+    use_fused_swiglu: bool = False
+    """
+       If true, the SwiGLU activation function will be fused with the linear layer in the MLP.
+    """
+
     ###################
     # Pipeline Parallel
     ###################
@@ -283,22 +288,22 @@ class ModelParallelConfig:
 
     overlap_p2p_comm_warmup_flush: bool = False
     """If true, overlap communication and computation in warm up and flush phase.
-       Only valid when overlap_p2p_comm is True and batch_p2p_comm is False. 
+       Only valid when overlap_p2p_comm is True and batch_p2p_comm is False.
        Defaults to False.
     """
 
     microbatch_group_size_per_vp_stage: Optional[int] = None
-    """This value specifies the number of micro-batches that are executed 
+    """This value specifies the number of micro-batches that are executed
        at a time for a given virtual stage (both forward and backward).
-       Default (in __post_init__() method below) to pipeline_parallel_size 
+       Default (in __post_init__() method below) to pipeline_parallel_size
        which specifies a depth-first schedule.
-       Example: for PP=2 VP=2, when microbatch_group_size_per_vp_stage=2, 
-       num_microbatches = 4, we have 
+       Example: for PP=2 VP=2, when microbatch_group_size_per_vp_stage=2,
+       num_microbatches = 4, we have
        rank 0 | 0 1 0 1 2 3 2 3
        rank 1 |   0 1 0 1 2 3 2 3
-       When microbatch_group_size_per_vp_stage=3, num_microbatches = 5, 
+       When microbatch_group_size_per_vp_stage=3, num_microbatches = 5,
        we have
-       rank 0 | 0 1 2 0 1 2 3 4 3 4 
+       rank 0 | 0 1 2 0 1 2 3 4 3 4
        rank 1 |   0 1 2 0 1 2 3 4 3 4
     """
 

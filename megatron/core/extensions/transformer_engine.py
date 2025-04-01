@@ -230,7 +230,7 @@ class TESwigluLinear(te_ops.Sequential):
             tp_group = None
 
         super().__init__(
-            te_ops.Quantize(forward=True, backward=True),
+            te_ops.Quantize(forward=False, backward=True),
             te_ops.SwiGLU(),
             te_ops.Linear(
                 in_features=input_size,
