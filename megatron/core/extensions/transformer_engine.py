@@ -154,6 +154,7 @@ class TESequentialLinear(te_ops.Sequential):
             tp_group = None
 
         super().__init__(
+            te_ops.RMSNorm(input_size),
             te_ops.Linear(
                 in_features=input_size,
                 out_features=output_size,

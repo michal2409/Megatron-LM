@@ -153,7 +153,7 @@ def get_gpt_layer_with_transformer_engine_spec(
                 mlp_bda=get_bias_dropout_add,
                 sharded_state_dict_keys_map={
                     'mlp.swiglu_fc2.2.basic_ops.0.weight': 'mlp.linear_fc2.weight',
-                    'mlp.seq_linear_fc1.0.basic_ops.0.weight': 'mlp.linear_fc1.weight',
+                    'mlp.seq_linear_fc1.1.basic_ops.0.weight': 'mlp.linear_fc1.weight',
                 },
             ),
         )
