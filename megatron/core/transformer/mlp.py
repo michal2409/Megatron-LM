@@ -20,8 +20,6 @@ from megatron.core.transformer.module import MegatronModule
 from megatron.core.transformer.spec_utils import ModuleSpec, build_module
 from megatron.core.transformer.transformer_config import TransformerConfig
 
-import transformer_engine.pytorch as te
-import transformer_engine.common.recipe as te_recipe
 
 @dataclass
 class MLPSubmodules:
