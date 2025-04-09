@@ -290,7 +290,11 @@ class DistributedDataParallel(_BaseDataParallel):
             self.ddp_config.use_distributed_optimizer and self.ddp_config.overlap_param_gather
         )
         self.remove_forward_pre_hook_handles = {}
-        if self.use_forward_hook:
+
+        # Add pre-hooks for param all-gather overlap during init except when external_cuda_graph
+        # is enabled since this interferes with Graph capture. In case of external_cuda_graph,
+        # enable_forward_pre_hook function should be manually called after CUDA graph capture.
+        if self.use_forward_hook and not config.external_cuda_graph:
             self.enable_forward_pre_hook()
         self.overlap_param_gather_with_optimizer_step = False
 
@@ -337,8 +341,11 @@ class DistributedDataParallel(_BaseDataParallel):
             if is_graph_capturing():
                 return
 
+            recurse = False
+            if hasattr(module, 'cuda_graphs') and len(module.cuda_graphs) > 0:
+                recurse = True
             # Make sure all parameters in this module have been all-gathered as necessary.
-            for param in module.parameters(recurse=False):
+            for param in module.parameters(recurse=recurse):
                 # Skip parameters without an associated buffer (such parameters have a
                 # .requires_grad field equal to False).
                 if param not in self.param_to_bucket_group:

@@ -419,7 +419,7 @@ class TransformerBlock(MegatronModule):
         try:
             import transformer_engine.pytorch as te  # pylint: disable=unused-import
 
-            if is_te_min_version("1.10.0", check_equality=False):
+            if not is_te_min_version("1.10.0", check_equality=False):
                 assert not any(
                     [attention_mask, context, context_mask, rotary_pos_emb]
                 ), "Keyword Arguments not supported with CUDA graph."
