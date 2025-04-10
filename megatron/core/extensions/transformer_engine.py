@@ -232,7 +232,7 @@ class TESwigluLinear(te_ops.Sequential):
 
         super().__init__(
             te_ops.Quantize(forward=False, backward=True),
-            te_ops.SwiGLU(),
+            te_ops.SwiGLU(cache_quantized_input=self.config.activation_func_fp8_input_store),
             te_ops.Linear(
                 in_features=input_size,
                 out_features=output_size,
