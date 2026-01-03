@@ -1,9 +1,12 @@
 # Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
 
 """Learning rate decay and weight decay incr functions."""
+
 import logging
 import math
 from typing import TYPE_CHECKING, Any, Optional, TypedDict
+
+import torch
 
 from megatron.core.utils import log_single_rank
 
@@ -67,9 +70,7 @@ def combine_param_group_overrides(
         for key, value in override.items():
             if key in combined_override:
                 if combined_override[key] != value:
-                    raise ValueError(
-                        f"Conflicting overrides for {key}: {combined_override[key]} and {value}"
-                    )
+                    raise ValueError(f"Conflicting overrides for {key}: {combined_override[key]} and {value}")
             combined_override[key] = value
     return combined_override
 
@@ -117,7 +118,6 @@ class OptimizerParamScheduler:
         wsd_decay_steps: Optional[int] = None,
         lr_wsd_decay_style: Optional[str] = None,
     ) -> None:
-
         # Class values.
         self.optimizer = optimizer
 
@@ -150,9 +150,7 @@ class OptimizerParamScheduler:
         self.override_opt_param_scheduler = override_opt_param_scheduler
         self.use_checkpoint_opt_param_scheduler = use_checkpoint_opt_param_scheduler
         if self.override_opt_param_scheduler:
-            assert not self.use_checkpoint_opt_param_scheduler, (
-                'both override and ' 'use-checkpoint are set.'
-            )
+            assert not self.use_checkpoint_opt_param_scheduler, "both override and use-checkpoint are set."
 
         # Set the learning rate
         self.step(0)
@@ -165,8 +163,8 @@ class OptimizerParamScheduler:
             param_group (dict): parameter group from the optimizer."""
 
         if param_group is not None:
-            start_wd = param_group.get('start_wd', self.start_wd)
-            end_wd = param_group.get('end_wd', self.end_wd)
+            start_wd = param_group.get("start_wd", self.start_wd)
+            end_wd = param_group.get("end_wd", self.end_wd)
         else:
             start_wd = self.start_wd
             end_wd = self.end_wd
@@ -174,7 +172,7 @@ class OptimizerParamScheduler:
         if self.num_steps > self.wd_incr_steps:
             return end_wd
 
-        if self.wd_incr_style == 'constant':
+        if self.wd_incr_style == "constant":
             assert start_wd == end_wd
             return end_wd
 
@@ -183,12 +181,12 @@ class OptimizerParamScheduler:
         assert incr_ratio <= 1.0
         delta_wd = end_wd - start_wd
 
-        if self.wd_incr_style == 'linear':
+        if self.wd_incr_style == "linear":
             coeff = incr_ratio
-        elif self.wd_incr_style == 'cosine':
+        elif self.wd_incr_style == "cosine":
             coeff = 0.5 * (math.cos(math.pi * (1 - incr_ratio)) + 1.0)
         else:
-            raise Exception(f'{self.wd_incr_style} weight decay increment style is not supported.')
+            raise Exception(f"{self.wd_incr_style} weight decay increment style is not supported.")
 
         return start_wd + coeff * delta_wd
 
@@ -200,17 +198,15 @@ class OptimizerParamScheduler:
             param_group (dict): parameter group from the optimizer.
         """
 
-        max_lr = param_group.get('max_lr', self.max_lr)
-        min_lr = param_group.get('min_lr', self.min_lr)
+        max_lr = param_group.get("max_lr", self.max_lr)
+        min_lr = param_group.get("min_lr", self.min_lr)
 
         # Use linear warmup for the initial part.
         if self.lr_warmup_steps > 0 and self.num_steps <= self.lr_warmup_steps:
-            return self.init_lr + (
-                (max_lr - self.init_lr) * float(self.num_steps) / float(self.lr_warmup_steps)
-            )
+            return self.init_lr + ((max_lr - self.init_lr) * float(self.num_steps) / float(self.lr_warmup_steps))
 
         # If the learning rate is constant, just return the initial value.
-        if self.lr_decay_style == 'constant':
+        if self.lr_decay_style == "constant":
             return max_lr
 
         # For any steps larger than `self.lr_decay_steps`, use `min_lr`.
@@ -218,7 +214,7 @@ class OptimizerParamScheduler:
             return min_lr
 
         # If we are done with the warmup period, use the decay style.
-        if self.lr_decay_style == 'inverse-square-root':
+        if self.lr_decay_style == "inverse-square-root":
             warmup_steps = max(self.lr_warmup_steps, 1)
             num_steps = max(self.num_steps, 1)
             lr = max_lr * warmup_steps**0.5 / (num_steps**0.5)
@@ -232,11 +228,11 @@ class OptimizerParamScheduler:
         delta_lr = max_lr - min_lr
 
         coeff = None
-        if self.lr_decay_style == 'linear':
+        if self.lr_decay_style == "linear":
             coeff = 1.0 - decay_ratio
-        elif self.lr_decay_style == 'cosine':
+        elif self.lr_decay_style == "cosine":
             coeff = 0.5 * (math.cos(math.pi * decay_ratio) + 1.0)
-        elif self.lr_decay_style == 'WSD':
+        elif self.lr_decay_style == "WSD":
             wsd_anneal_start_ = self.lr_decay_steps - self.wsd_decay_steps
             if self.num_steps <= wsd_anneal_start_:
                 coeff = 1.0
@@ -253,7 +249,7 @@ class OptimizerParamScheduler:
                     coeff = 1.0 - math.sqrt(wsd_decay_ratio)
 
         else:
-            raise Exception(f'{self.lr_decay_style} decay style is not supported.')
+            raise Exception(f"{self.lr_decay_style} decay style is not supported.")
         assert coeff is not None
 
         return min_lr + coeff * delta_lr
@@ -266,22 +262,25 @@ class OptimizerParamScheduler:
         """
         self.num_steps += increment
         for param_group in self.optimizer.param_groups:
-            param_group['lr'] = self.get_lr(param_group)
-            param_group['weight_decay'] = self.get_wd(param_group) * param_group.get('wd_mult', 1.0)
+            if isinstance(param_group["lr"], torch.Tensor):
+                param_group["lr"].fill_(self.get_lr(param_group))
+            else:
+                param_group["lr"] = self.get_lr(param_group)
+            param_group["weight_decay"] = self.get_wd(param_group) * param_group.get("wd_mult", 1.0)
 
     def state_dict(self) -> dict:
         """Return the state dict."""
         state_dict = {
-            'max_lr': self.max_lr,
-            'lr_warmup_steps': self.lr_warmup_steps,
-            'num_steps': self.num_steps,
-            'lr_decay_style': self.lr_decay_style,
-            'lr_decay_steps': self.lr_decay_steps,
-            'min_lr': self.min_lr,
-            'start_wd': self.start_wd,
-            'end_wd': self.end_wd,
-            'wd_incr_style': self.wd_incr_style,
-            'wd_incr_steps': self.wd_incr_steps,
+            "max_lr": self.max_lr,
+            "lr_warmup_steps": self.lr_warmup_steps,
+            "num_steps": self.num_steps,
+            "lr_decay_style": self.lr_decay_style,
+            "lr_decay_steps": self.lr_decay_steps,
+            "min_lr": self.min_lr,
+            "start_wd": self.start_wd,
+            "end_wd": self.end_wd,
+            "wd_incr_style": self.wd_incr_style,
+            "wd_incr_steps": self.wd_incr_steps,
         }
         return state_dict
 
@@ -301,8 +300,8 @@ class OptimizerParamScheduler:
 
         if not self.use_checkpoint_opt_param_scheduler:
             assert cls_value == sd_value, (
-                f'OptimizerParamScheduler: class input value {cls_value} and checkpoint'
-                f'value {sd_value} for {name} do not match'
+                f"OptimizerParamScheduler: class input value {cls_value} and checkpoint"
+                f"value {sd_value} for {name} do not match"
             )
 
         log_single_rank(logger, logging.INFO, f" > using checkpoint value {sd_value} for {name}")
@@ -315,60 +314,50 @@ class OptimizerParamScheduler:
             state_dict (dict): state dict to be load
         """
 
-        if 'start_lr' in state_dict:
-            max_lr_ = state_dict['start_lr']
+        if "start_lr" in state_dict:
+            max_lr_ = state_dict["start_lr"]
         else:
-            max_lr_ = state_dict['max_lr']
-        self.max_lr = self._check_and_set(self.max_lr, max_lr_, 'learning rate')
+            max_lr_ = state_dict["max_lr"]
+        self.max_lr = self._check_and_set(self.max_lr, max_lr_, "learning rate")
 
-        self.min_lr = self._check_and_set(
-            self.min_lr, state_dict['min_lr'], 'minimum learning rate'
-        )
+        self.min_lr = self._check_and_set(self.min_lr, state_dict["min_lr"], "minimum learning rate")
 
-        if 'warmup_iter' in state_dict:
-            lr_warmup_steps_ = state_dict['warmup_iter']
-        elif 'warmup_steps' in state_dict:
-            lr_warmup_steps_ = state_dict['warmup_steps']
+        if "warmup_iter" in state_dict:
+            lr_warmup_steps_ = state_dict["warmup_iter"]
+        elif "warmup_steps" in state_dict:
+            lr_warmup_steps_ = state_dict["warmup_steps"]
         else:
-            lr_warmup_steps_ = state_dict['lr_warmup_steps']
-        self.lr_warmup_steps = self._check_and_set(
-            self.lr_warmup_steps, lr_warmup_steps_, 'warmup iterations'
-        )
+            lr_warmup_steps_ = state_dict["lr_warmup_steps"]
+        self.lr_warmup_steps = self._check_and_set(self.lr_warmup_steps, lr_warmup_steps_, "warmup iterations")
 
-        if 'end_iter' in state_dict:
-            lr_decay_steps_ = state_dict['end_iter']
-        elif 'decay_steps' in state_dict:
-            lr_decay_steps_ = state_dict['decay_steps']
+        if "end_iter" in state_dict:
+            lr_decay_steps_ = state_dict["end_iter"]
+        elif "decay_steps" in state_dict:
+            lr_decay_steps_ = state_dict["decay_steps"]
         else:
-            lr_decay_steps_ = state_dict['lr_decay_steps']
-        self.lr_decay_steps = self._check_and_set(
-            self.lr_decay_steps, lr_decay_steps_, 'total number of iterations'
-        )
+            lr_decay_steps_ = state_dict["lr_decay_steps"]
+        self.lr_decay_steps = self._check_and_set(self.lr_decay_steps, lr_decay_steps_, "total number of iterations")
 
-        if 'decay_style' in state_dict:
-            lr_decay_style_ = state_dict['decay_style']
+        if "decay_style" in state_dict:
+            lr_decay_style_ = state_dict["decay_style"]
         else:
-            lr_decay_style_ = state_dict['lr_decay_style']
-        self.lr_decay_style = self._check_and_set(
-            self.lr_decay_style, lr_decay_style_, 'learning rate decay style'
-        )
+            lr_decay_style_ = state_dict["lr_decay_style"]
+        self.lr_decay_style = self._check_and_set(self.lr_decay_style, lr_decay_style_, "learning rate decay style")
 
-        if 'num_iters' in state_dict:
-            num_steps = state_dict['num_iters']
+        if "num_iters" in state_dict:
+            num_steps = state_dict["num_iters"]
         else:
-            num_steps = state_dict['num_steps']
+            num_steps = state_dict["num_steps"]
         self.step(increment=num_steps)
 
-        if 'start_wd' in state_dict:
-            self.start_wd = self._check_and_set(
-                self.start_wd, state_dict['start_wd'], "start weight decay"
-            )
-            self.end_wd = self._check_and_set(self.end_wd, state_dict['end_wd'], "end weight decay")
+        if "start_wd" in state_dict:
+            self.start_wd = self._check_and_set(self.start_wd, state_dict["start_wd"], "start weight decay")
+            self.end_wd = self._check_and_set(self.end_wd, state_dict["end_wd"], "end weight decay")
             self.wd_incr_steps = self._check_and_set(
                 self.wd_incr_steps,
-                state_dict['wd_incr_steps'],
+                state_dict["wd_incr_steps"],
                 "total number of weight decay iterations",
             )
             self.wd_incr_style = self._check_and_set(
-                self.wd_incr_style, state_dict['wd_incr_style'], "weight decay incr style"
+                self.wd_incr_style, state_dict["wd_incr_style"], "weight decay incr style"
             )
