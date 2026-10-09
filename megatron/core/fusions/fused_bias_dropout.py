@@ -66,18 +66,56 @@ def bias_dropout_add_unfused(training):
     return _bias_dropout_add
 
 
+def _plain_residual_add(
+    x_with_bias: Tuple[torch.Tensor, Optional[torch.Tensor]],
+    residual: torch.Tensor,
+    prob: float,
+    training: bool,
+) -> Optional[torch.Tensor]:
+    """Return residual + x if there is no bias and no dropout, else None.
+
+    Then the bias-dropout-add is one add, and the eager add gives the same bits as the
+    fused function without a call of the compiled code. Eval mode with no grads adds in place,
+    as _bias_dropout_add_func does.
+    """
+    x, bias = x_with_bias
+    if bias is not None or prob != 0.0 or x.dtype != residual.dtype:
+        return None
+    if not training and not x.requires_grad and not residual.requires_grad:
+        return x.add_(residual)
+    return residual + x
+
+
 @jit_fuser
-def bias_dropout_add_fused_train(
+def _bias_dropout_add_fused_train(
     x_with_bias: Tuple[torch.Tensor, Optional[torch.Tensor]], residual: torch.Tensor, prob: float
 ) -> torch.Tensor:
     return _bias_dropout_add_func(x_with_bias, residual, prob, True)
 
 
 @jit_fuser
-def bias_dropout_add_fused_inference(
+def _bias_dropout_add_fused_inference(
     x_with_bias: Tuple[torch.Tensor, Optional[torch.Tensor]], residual: torch.Tensor, prob: float
 ) -> torch.Tensor:
     return _bias_dropout_add_func(x_with_bias, residual, prob, False)
+
+
+def bias_dropout_add_fused_train(
+    x_with_bias: Tuple[torch.Tensor, Optional[torch.Tensor]], residual: torch.Tensor, prob: float
+) -> torch.Tensor:
+    out = _plain_residual_add(x_with_bias, residual, prob, True)
+    if out is None:
+        out = _bias_dropout_add_fused_train(x_with_bias, residual, prob)
+    return out
+
+
+def bias_dropout_add_fused_inference(
+    x_with_bias: Tuple[torch.Tensor, Optional[torch.Tensor]], residual: torch.Tensor, prob: float
+) -> torch.Tensor:
+    out = _plain_residual_add(x_with_bias, residual, prob, False)
+    if out is None:
+        out = _bias_dropout_add_fused_inference(x_with_bias, residual, prob)
+    return out
 
 
 def get_bias_dropout_add(training, fused):
