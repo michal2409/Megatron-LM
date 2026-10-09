@@ -3,7 +3,59 @@
 import pytest
 import torch
 
-from megatron.core.fusions.fused_bias_dropout import _bias_dropout_add_func, get_bias_dropout_add
+from megatron.core.fusions.fused_bias_dropout import (
+    _bias_dropout_add_func,
+    _bias_dropout_add_fused_inference,
+    _bias_dropout_add_fused_train,
+    _plain_residual_add,
+    get_bias_dropout_add,
+)
+
+# ---------------------------------------------------------------------------
+# Plain add: no bias and no dropout
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("training", [True, False])
+def test_plain_residual_add_matches_fused(dtype, training):
+    """With no bias and dropout 0, the eager add gives the same bits as the fused function."""
+    torch.manual_seed(7)
+    x = torch.randn(16, 64, dtype=dtype, device="cuda")
+    residual = torch.randn(16, 64, dtype=dtype, device="cuda")
+    fused = _bias_dropout_add_fused_train if training else _bias_dropout_add_fused_inference
+
+    x_ref = x.clone().requires_grad_(training)
+    residual_ref = residual.clone().requires_grad_(training)
+    out_ref = fused((x_ref, None), residual_ref, 0.0)
+
+    fn = get_bias_dropout_add(training=training, fused=True)
+    x_new = x.clone().requires_grad_(training)
+    residual_new = residual.clone().requires_grad_(training)
+    out_new = fn((x_new, None), residual_new, 0.0)
+
+    assert torch.equal(out_new, out_ref)
+    if training:
+        grad = torch.randn_like(out_ref)
+        out_ref.backward(grad)
+        out_new.backward(grad)
+        assert torch.equal(x_new.grad, x_ref.grad)
+        assert torch.equal(residual_new.grad, residual_ref.grad)
+    else:
+        # In-place, as the fused inference function
+        assert out_new.data_ptr() == x_new.data_ptr()
+
+
+def test_plain_residual_add_only_without_bias_and_dropout():
+    """A bias, a dropout or a dtype change keeps the fused function."""
+    x = torch.randn(4, 8, dtype=torch.bfloat16, device="cuda")
+    residual = torch.randn(4, 8, dtype=torch.bfloat16, device="cuda")
+    bias = torch.randn(8, dtype=torch.bfloat16, device="cuda")
+    assert _plain_residual_add((x, bias), residual, 0.0, True) is None
+    assert _plain_residual_add((x, None), residual, 0.1, True) is None
+    assert _plain_residual_add((x, None), residual.float(), 0.0, True) is None
+    assert _plain_residual_add((x, None), residual, 0.0, True) is not None
+
 
 # ---------------------------------------------------------------------------
 # Existing test: fused vs. unfused parity (same dtype)
